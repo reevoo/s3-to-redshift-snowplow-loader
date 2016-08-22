@@ -6,11 +6,10 @@ require 'aws-sdk'
 
 Bundler.require(:default)
 
-$LOAD_PATH << File.expand_path("../", __FILE__)
-
 Dotenv.load ".env"
 
 START_DATE = Date.parse('2016-07-29')
+TABLES = %w(events com_reevoo_badge_event_1 com_reevoo_conversion_event_1)
 S3 = Aws::S3::Client.new
 REDSHIFT = PG::Connection.new(ENV['REDSHIFT_URI'])
 
@@ -44,19 +43,25 @@ end
 
 def filtered_s3_prefixes(main_dir, date_since)
   all_s3_prefixes(main_dir).select do |prefix|
-    prefix =~ /events\/(\d{4}-\d{2}-\d{2}.+)\// && Date.parse($1) >= date_since
+    prefix =~ /.+\/(\d{4}-\d{2}-\d{2}.+)\// && Date.parse($1) >= date_since
   end
 end
 
 
-filtered_s3_prefixes('events', START_DATE).each do |prefix|
-  puts "COPY #{prefix}"
-  copy_to_redshift('landing.copy_events', prefix)
+
+TABLES.each do |table|
+  copy_table = "landing.copy_#{table}"
+
+  puts "TRUNCATE #{copy_table}"
+  # REDSHIFT.exec("TRUNCATE #{copy_table}")
+
+  filtered_s3_prefixes(table, START_DATE).each do |prefix|
+    puts "COPY #{prefix}"
+    # copy_to_redshift(copy_table, prefix)
+  end
+
+  puts "ANALYZE #{copy_table}"
+  # REDSHIFT.exec("ANALYZE #{copy_table}")
 end
-
-
-
-
-
 
 
