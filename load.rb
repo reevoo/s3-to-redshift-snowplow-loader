@@ -13,7 +13,7 @@ END_DATE        = ARGV[1] ? Date.parse(ARGV[1]) : Date.today
 TABLES          = %w(events com_reevoo_badge_event_1 com_reevoo_conversion_event_1)
 S3              = Aws::S3::Client.new
 REDSHIFT        = PG::Connection.new(ENV['REDSHIFT_URI'])
-TIME_SLICE_STEP = Rational(1, 288)
+TIME_SLICE_STEP = Rational(1, 144)
 
 
 def copy_to_redshift(table_name, bucket_path)
@@ -224,46 +224,53 @@ def all_s3_prefixes(main_dir)
   prefixes
 end
 
-def filtered_s3_prefixes(main_dir, date_since, date_until)
+def s3_prefixes_for_day(main_dir, date)
   all_s3_prefixes(main_dir).select do |prefix|
-    match = prefix =~ /.+\/(\d{4}-\d{2}-\d{2}.+)\//
-    if match
-      date = Date.parse($1)
-      date >= date_since && date <= date_until
-    end
+    prefix =~ /.+\/(\d{4}-\d{2}-\d{2}.+)\// && Date.parse($1) == date
   end
 end
 
-def events_tstamp_slices
+def for_event_time_slices
   min, max = REDSHIFT.exec("SELECT min(collector_tstamp), max(collector_tstamp) FROM landing.copy_events;").values[0]
   min = DateTime.parse(min)
   max = DateTime.parse(max)
   slice_min = min
-  while slice_min < max
+  while slice_min <= max
     yield(slice_min, slice_min + TIME_SLICE_STEP)
     slice_min += TIME_SLICE_STEP
   end
 end
 
+def for_dates_between(from, to)
+  date = from
+  while date <= to
+    yield(date)
+    date += 1
+  end
+end
 
-TABLES.each do |table|
-  copy_table = "landing.copy_#{table}"
 
-  puts "TRUNCATE #{copy_table}"
-  REDSHIFT.exec("TRUNCATE #{copy_table}")
+for_dates_between(START_DATE, END_DATE) do |date|
+  puts "PROCESSING EVENTS FOR #{date}"
 
-  filtered_s3_prefixes(table, START_DATE, END_DATE).each do |prefix|
-    puts "COPY #{prefix}"
-    copy_to_redshift(copy_table, prefix)
+  TABLES.each do |table|
+    copy_table = "landing.copy_#{table}"
+
+    puts "TRUNCATE #{copy_table}"
+    REDSHIFT.exec("TRUNCATE #{copy_table}")
+
+    s3_prefixes_for_day(table, date).each do |prefix|
+      puts "COPY #{prefix}"
+      copy_to_redshift(copy_table, prefix)
+    end
+
+    puts "ANALYZE #{copy_table}"
+    REDSHIFT.exec("ANALYZE #{copy_table}")
   end
 
-  puts "ANALYZE #{copy_table}"
-  REDSHIFT.exec("ANALYZE #{copy_table}")
+  for_event_time_slices do |slice_from, slice_to|
+    puts "RUNNING ETL from #{slice_from} to #{slice_to}"
+    mark_events_etl(slice_from, slice_to)
+  end
 end
-
-events_tstamp_slices do |slice_from, slice_to|
-  puts "RUNNING ETL from #{slice_from} to #{slice_to}"
-  mark_events_etl(slice_from, slice_to)
-end
-
 
