@@ -28,7 +28,7 @@ end
 
 def mark_events_etl(from, to)
   etl_sql = <<-eos
-    INSERT INTO atomic.mark_events_test (
+    INSERT INTO atomic.mark_events (
       SELECT
         -- App
         platform,
@@ -194,7 +194,7 @@ def mark_events_etl(from, to)
         LEFT JOIN landing.copy_com_reevoo_conversion_event_1 AS c ON e.event_id = c.root_id AND e.collector_tstamp = c.root_tstamp
         WHERE e.app_id = 'mark'
         AND e.event_id NOT IN (
-          SELECT me.event_id FROM atomic.mark_events_test me
+          SELECT me.event_id FROM atomic.mark_events me
           WHERE me.collector_tstamp >= '#{from}' AND me.collector_tstamp < '#{to}'
         )
         AND e.collector_tstamp >= '#{from}' AND e.collector_tstamp < '#{to}'
