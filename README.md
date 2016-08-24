@@ -11,7 +11,7 @@ The `load.rb` script requires following ENV variables to be set:
 - AWS_REGION
 - REDSHIFT_URI
 
-and it takes 2 arguments, the start and end date for historical data. The dafault for start date is 30 days ago and for end date it's today.
+and it takes 2 arguments, the start and end date for historical data. The default for start date is 30 days ago and for end date it's today.
 
 Example:
 
