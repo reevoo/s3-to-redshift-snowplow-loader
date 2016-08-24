@@ -19,3 +19,4 @@ Example:
 AWS_ACCESS_KEY_ID=aws-access-key AWS_SECRET_ACCESS_KEY=aws-secret-access-key AWS_REGION=eu-west-1 REDSHIFT_URI="postgres://user:password@localhost:5439/snowplow" bundle exec ruby load.rb 2016-07-29
 ```
 
+If the processing fails in the middle it's safe to restart the script from last unfinished day.
