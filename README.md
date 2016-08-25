@@ -21,4 +21,7 @@ AWS_ACCESS_KEY_ID=aws-access-key AWS_SECRET_ACCESS_KEY=aws-secret-access-key AWS
 
 If the processing fails in the middle it's safe to restart the script from last unfinished day.
 
-Testing showed that loading of a single day of data takes about 1 hour 40 minutes to process.
+## Notes
+
+- Testing showed that loading of a single day of data takes about 1 hour 40 minutes to process.
+- All rows loaded by this script into `atomic.mark_events` table have `s3_copy` column set to TRUE.
