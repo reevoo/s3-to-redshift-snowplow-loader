@@ -1,8 +1,8 @@
 require "rubygems"
 require "bundler/setup"
-require "dotenv"
 require "aws-sdk"
 require "pg"
+# require "dotenv"
 # require "pry"
 
 # Dotenv.load ".env"
@@ -168,7 +168,9 @@ def mark_events_etl(from, to)
         hit_type,
         cta_page_use,
         cta_style,
-        implementation
+        implementation,
+
+        TRUE AS s3_copy
 
       FROM (
         SELECT
