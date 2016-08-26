@@ -11,7 +11,6 @@ START_DATE      = ARGV[0] ? Date.parse(ARGV[0]) : Date.today - 30
 END_DATE        = ARGV[1] ? Date.parse(ARGV[1]) : Date.today
 
 TABLES          = %w(events com_reevoo_badge_event_1 com_reevoo_conversion_event_1)
-S3              = Aws::S3::Client.new
 TIME_SLICE_STEP = Rational(1, 144)
 
 @reconnect_attempts     = 0
@@ -21,14 +20,16 @@ MAX_RECONNECT_ATTEMPS   = 5
 
 def redshift_exec(sql)
   @redshift ||= PG::Connection.new(ENV['REDSHIFT_URI'])
-  @redshift.exec(sql)
+  result = @redshift.exec(sql)
+  @reconnect_attempts = 0
+  result
 rescue PG::ConnectionBad => e
   puts "CONNECTION TO REDSHIFT LOST"
   raise e if @reconnect_attempts > MAX_RECONNECT_ATTEMPS
   @reconnect_attempts += 1
   sleep(RECONNECT_ATTEMPS_SLEEP * @reconnect_attempts)
-  puts "RECONNECTING..."
-  @redshift.reset
+  puts "RECONNECTING #{@reconnect_attempts}. attempt"
+  @redshift.reset if @redshift
   redshift_exec(sql)
 end
 
@@ -225,12 +226,23 @@ def mark_events_etl(from, to)
 end
 
 def list_unloaded_items(main_dir, continuation_token = nil)
-  S3.list_objects(
+  @s3 ||= Aws::S3::Client.new
+  items = @s3.list_objects(
     bucket: 'snowplow-reevoo-unload',
     prefix: "#{main_dir}/",
     delimiter: '/',
     continuation_token: continuation_token
   )
+  @reconnect_attempts = 0
+  items
+rescue Aws::S3::Errors::ServiceError => e
+  puts "CONNECTION TO S3 LOST"
+  raise e if @reconnect_attempts > MAX_RECONNECT_ATTEMPS
+  @reconnect_attempts += 1
+  sleep(RECONNECT_ATTEMPS_SLEEP * @reconnect_attempts)
+  puts "RECONNECTING #{@reconnect_attempts}. attempt"
+  @s3 = nil
+  list_unloaded_items(main_dir, continuation_token)
 end
 
 def all_s3_prefixes(main_dir)
