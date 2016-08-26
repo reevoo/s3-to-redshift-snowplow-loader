@@ -12,9 +12,25 @@ END_DATE        = ARGV[1] ? Date.parse(ARGV[1]) : Date.today
 
 TABLES          = %w(events com_reevoo_badge_event_1 com_reevoo_conversion_event_1)
 S3              = Aws::S3::Client.new
-REDSHIFT        = PG::Connection.new(ENV['REDSHIFT_URI'])
 TIME_SLICE_STEP = Rational(1, 144)
 
+@reconnect_attempts     = 0
+RECONNECT_ATTEMPS_SLEEP = 60
+MAX_RECONNECT_ATTEMPS   = 5
+
+
+def redshift_exec(sql)
+  @redshift ||= PG::Connection.new(ENV['REDSHIFT_URI'])
+  @redshift.exec(sql)
+rescue PG::ConnectionBad => e
+  puts "CONNECTION TO REDSHIFT LOST"
+  raise e if @reconnect_attempts > MAX_RECONNECT_ATTEMPS
+  @reconnect_attempts += 1
+  sleep(RECONNECT_ATTEMPS_SLEEP * @reconnect_attempts)
+  puts "RECONNECTING..."
+  @redshift.reset
+  redshift_exec(sql)
+end
 
 def copy_to_redshift(table_name, bucket_path)
   copy_sql = <<-eos
@@ -23,7 +39,7 @@ def copy_to_redshift(table_name, bucket_path)
     WITH CREDENTIALS 'aws_access_key_id=#{ENV['AWS_ACCESS_KEY_ID']};aws_secret_access_key=#{ENV['AWS_SECRET_ACCESS_KEY']}'
     GZIP REMOVEQUOTES ESCAPE;
   eos
-  REDSHIFT.exec(copy_sql)
+  redshift_exec(copy_sql)
 end
 
 def mark_events_etl(from, to)
@@ -205,7 +221,7 @@ def mark_events_etl(from, to)
       ) WHERE event_number = 1
     );
   eos
-  REDSHIFT.exec(etl_sql)
+  redshift_exec(etl_sql)
 end
 
 def list_unloaded_items(main_dir, continuation_token = nil)
@@ -233,7 +249,7 @@ def s3_prefixes_for_day(main_dir, date)
 end
 
 def for_event_time_slices
-  min, max = REDSHIFT.exec("SELECT min(collector_tstamp), max(collector_tstamp) FROM landing.copy_events;").values[0]
+  min, max = redshift_exec("SELECT min(collector_tstamp), max(collector_tstamp) FROM landing.copy_events;").values[0]
   min = DateTime.parse(min)
   max = DateTime.parse(max)
   slice_min = min
@@ -259,7 +275,7 @@ for_dates_between(START_DATE, END_DATE) do |date|
     copy_table = "landing.copy_#{table}"
 
     puts "TRUNCATE #{copy_table}"
-    REDSHIFT.exec("TRUNCATE #{copy_table}")
+    redshift_exec("TRUNCATE #{copy_table}")
 
     s3_prefixes_for_day(table, date).each do |prefix|
       puts "COPY #{prefix}"
@@ -267,7 +283,7 @@ for_dates_between(START_DATE, END_DATE) do |date|
     end
 
     puts "ANALYZE #{copy_table}"
-    REDSHIFT.exec("ANALYZE #{copy_table}")
+    redshift_exec("ANALYZE #{copy_table}")
   end
 
   for_event_time_slices do |slice_from, slice_to|
@@ -275,4 +291,3 @@ for_dates_between(START_DATE, END_DATE) do |date|
     mark_events_etl(slice_from, slice_to)
   end
 end
-
