@@ -279,8 +279,7 @@ def for_dates_between(from, to)
   end
 end
 
-
-for_dates_between(START_DATE, END_DATE) do |date|
+def process_single_day(date)
   puts "PROCESSING EVENTS FOR #{date}"
 
   TABLES.each do |table|
@@ -302,4 +301,15 @@ for_dates_between(START_DATE, END_DATE) do |date|
     puts "RUNNING ETL from #{slice_from} to #{slice_to}"
     mark_events_etl(slice_from, slice_to)
   end
+  @reconnect_attempts = 0
+rescue PG::ServerError => e
+  raise e if @reconnect_attempts > MAX_RECONNECT_ATTEMPS
+  @reconnect_attempts += 1
+  puts "REDSHIFT SERVER ERROR #{e}, RESTARTING PROCESSING"
+  process_single_day(date)
+end
+
+
+for_dates_between(START_DATE, END_DATE) do |date|
+  process_single_day(date)
 end
