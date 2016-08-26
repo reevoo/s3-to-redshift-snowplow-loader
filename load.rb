@@ -42,6 +42,9 @@ def copy_to_redshift(table_name, bucket_path)
     GZIP REMOVEQUOTES ESCAPE;
   eos
   redshift_exec(copy_sql)
+rescue PG::InternalError => e
+  puts "COPY #{prefix} FAILED (#{e})"
+  @failed_copy_commands << prefix
 end
 
 def mark_events_etl(from, to)
@@ -280,27 +283,26 @@ def for_dates_between(from, to)
   end
 end
 
+def copy_data_for_single_day(table, date)
+  copy_table = "landing.copy_#{table}"
+
+  puts "TRUNCATE #{copy_table}"
+  redshift_exec("TRUNCATE #{copy_table}")
+
+  s3_prefixes_for_day(table, date).each do |prefix|
+    puts "COPY #{prefix}"
+    copy_to_redshift(copy_table, prefix)
+  end
+
+  puts "ANALYZE #{copy_table}"
+  redshift_exec("ANALYZE #{copy_table}")
+end
+
 def process_single_day(date)
   puts "PROCESSING EVENTS FOR #{date}"
 
   TABLES.each do |table|
-    copy_table = "landing.copy_#{table}"
-
-    puts "TRUNCATE #{copy_table}"
-    redshift_exec("TRUNCATE #{copy_table}")
-
-    s3_prefixes_for_day(table, date).each do |prefix|
-      begin
-        puts "COPY #{prefix}"
-        copy_to_redshift(copy_table, prefix)
-      rescue PG::InternalError => e
-        puts "COPY #{prefix} FAILED (#{e})"
-        @failed_copy_commands << prefix
-      end
-    end
-
-    puts "ANALYZE #{copy_table}"
-    redshift_exec("ANALYZE #{copy_table}")
+    copy_data_for_single_day(table, date)
   end
 
   for_event_time_slices do |slice_from, slice_to|
