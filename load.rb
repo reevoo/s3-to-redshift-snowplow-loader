@@ -13,6 +13,7 @@ END_DATE        = ARGV[1] ? Date.parse(ARGV[1]) : Date.today
 TABLES          = %w(events com_reevoo_badge_event_1 com_reevoo_conversion_event_1)
 TIME_SLICE_STEP = Rational(1, 144)
 
+@failed_copy_commands   = []
 @reconnect_attempts     = 0
 RECONNECT_ATTEMPS_SLEEP = 60
 MAX_RECONNECT_ATTEMPS   = 5
@@ -289,8 +290,13 @@ def process_single_day(date)
     redshift_exec("TRUNCATE #{copy_table}")
 
     s3_prefixes_for_day(table, date).each do |prefix|
-      puts "COPY #{prefix}"
-      copy_to_redshift(copy_table, prefix)
+      begin
+        puts "COPY #{prefix}"
+        copy_to_redshift(copy_table, prefix)
+      rescue PG::InternalError => e
+        puts "COPY #{prefix} FAILED (#{e})"
+        @failed_copy_commands << prefix
+      end
     end
 
     puts "ANALYZE #{copy_table}"
@@ -305,7 +311,7 @@ def process_single_day(date)
 rescue PG::ServerError => e
   raise e if @reconnect_attempts > MAX_RECONNECT_ATTEMPS
   @reconnect_attempts += 1
-  puts "REDSHIFT SERVER ERROR #{e}, RESTARTING PROCESSING"
+  puts "REDSHIFT SERVER ERROR (#{e}), RESTARTING PROCESSING"
   process_single_day(date)
 end
 
@@ -313,3 +319,6 @@ end
 for_dates_between(START_DATE, END_DATE) do |date|
   process_single_day(date)
 end
+
+puts "FINISHED"
+puts "Failed copy commands: #{@failed_copy_commands.join(', ')}" unless @failed_copy_commands.empty?
