@@ -24,7 +24,7 @@ def redshift_exec(sql)
   result = @redshift.exec(sql)
   @reconnect_attempts = 0
   result
-rescue PG::ConnectionBad => e
+rescue PG::ConnectionBad, PG::UnableToSend => e
   puts "CONNECTION TO REDSHIFT LOST"
   raise e if @reconnect_attempts > MAX_RECONNECT_ATTEMPS
   @reconnect_attempts += 1
