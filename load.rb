@@ -264,10 +264,10 @@ def s3_prefixes_for_day(main_dir, date)
   end
 end
 
-def for_event_time_slices
+def for_event_time_slices(date)
   min, max = redshift_exec("SELECT min(collector_tstamp), max(collector_tstamp) FROM landing.copy_events;").values[0]
-  min = DateTime.parse(min)
-  max = DateTime.parse(max)
+  min = [DateTime.parse(min), (date - 1).to_datetime].max # there are some crazy corrupted tstamps
+  max = [DateTime.parse(max), (date + 1).to_datetime].min
   slice_min = min
   while slice_min <= max
     yield(slice_min, slice_min + TIME_SLICE_STEP)
@@ -305,7 +305,7 @@ def process_single_day(date)
     copy_data_for_single_day(table, date)
   end
 
-  for_event_time_slices do |slice_from, slice_to|
+  for_event_time_slices(date) do |slice_from, slice_to|
     puts "RUNNING ETL from #{slice_from} to #{slice_to}"
     mark_events_etl(slice_from, slice_to)
   end
