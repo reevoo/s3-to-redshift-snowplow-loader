@@ -43,8 +43,8 @@ def copy_to_redshift(table_name, bucket_path)
   eos
   redshift_exec(copy_sql)
 rescue PG::InternalError => e
-  puts "COPY #{prefix} FAILED (#{e})"
-  @failed_copy_commands << prefix
+  puts "COPY #{bucket_path} FAILED (#{e})"
+  @failed_copy_commands << bucket_path
 end
 
 def mark_events_etl(from, to)
