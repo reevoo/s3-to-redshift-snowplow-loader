@@ -1,1 +1,10 @@
 .env
+.iml
+*.ipr
+*.iws
+.idea/**
+scala-uploader/.idea/**
+out
+.DS_Store
+target
+*.class
