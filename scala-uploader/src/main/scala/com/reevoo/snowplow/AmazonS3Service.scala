@@ -15,19 +15,8 @@ class AmazonS3Service {
     sys.env("SNOWPLOW_AWS_SECRET_ACCESS_KEY")
   ));
 
-  def getRootEventFolders(folderName: String) = {
-    getListOfFolders("events", folderName)
-  }
 
-  def getBadgeEventFolders(folderName: String) = {
-    getListOfFolders("com_reevoo_badge_event_1", folderName)
-  }
-
-  def getConversionEventFolders(folderName: String) = {
-    getListOfFolders("com_reevoo_conversion_event_1", folderName)
-  }
-
-  private def getListOfFolders(eventsFolder: String, subfolderName: String) = {
+  def getListOfFolders(eventsFolder: String, subfolderName: String) = {
     val listObjectsRequest = new ListObjectsRequest().
       withBucketName(BucketName).
       withPrefix(s"${eventsFolder}/${subfolderName}").
