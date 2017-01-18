@@ -5,6 +5,11 @@ import com.github.nscala_time.time.Imports._
 import org.joda.time.Days
 import com.frugalmechanic.optparse._
 
+import com.reevoo.snowplow.redshift.queries.MaxMinDateIntervalQuery
+import com.reevoo.snowplow.redshift.queries.MarkEventsETLQuery
+import com.reevoo.snowplow.redshift.queries.TruncateTableQuery
+import com.reevoo.snowplow.redshift.queries.MarkEventsUnloadQuery
+
 object SnowplowToRedshiftHistoricalDataUploader {
 
   object CommandLineArguments extends OptParse {
@@ -14,58 +19,78 @@ object SnowplowToRedshiftHistoricalDataUploader {
     val overwrite = BoolOpt()
   }
 
+  final val EventsFolderToTableName = Map(
+    "events" -> "atomic.root_events_upload_from_s3",
+    "com_reevoo_badge_event_1" -> "atomic.badge_events_uploaded_from_s3",
+    "com_reevoo_conversion_event_1" -> "atomic.conversion_events_uploaded_from_s3"
+  )
+
+  final val DateFormatter = DateTimeFormat.forPattern("yyyy-MM-dd")
+
+  final val RedshiftService = new RedshiftService
+
+
   def main(args: Array[String]) {
 
     CommandLineArguments.parse(args)
 
-    val redshiftService = new RedshiftService("atomic.mark_events_historic")
-    val s3Service = new AmazonS3Service()
-
     time("Uploading started...") {
       if (CommandLineArguments.fromDate && CommandLineArguments.toDate) {
-        val DateFormatter = DateTimeFormat.forPattern("yyyy-MM-dd")
         val fromDate = new DateTime(CommandLineArguments.fromDate.get)
         val toDate = new DateTime(CommandLineArguments.toDate.get)
 
-        val eventsFolderToTableName = Map(
-          "events" -> "atomic.root_events_upload_from_s3",
-          "com_reevoo_badge_event_1" -> "atomic.badge_events_uploaded_from_s3",
-          "com_reevoo_conversion_event_1" -> "atomic.conversion_events_uploaded_from_s3"
-        )
-
         (0 to Days.daysBetween(fromDate, toDate).getDays()).map(fromDate.plusDays(_)).foreach(date => {
           time(s"*** PROCESSING FILES FOR DATE ${date} FOLDERS") {
+            copyFromS3(date)
 
-            eventsFolderToTableName.keys.foreach( folderName =>  {
-              val s3Urls = s3Service.getListOfFolders(folderName , DateFormatter.print(date))
-              s3Urls.foreach {
-                redshiftService.uploadToTable(eventsFolderToTableName(folderName), _)
-              }
-            })
+            val dateRangeMoved = moveToMarkEvents
 
-            // etl of the events into mark_events table by joining the temporary tables and empty the temporary tables.
+            calculateAggregates(dateRangeMoved)
 
-
-
-            // calculate the aggregates and save the aggregates to the tableau redshift database.
-            // unload the loaded data from mark_events back to a new s3 folder splitting the events by date subfolders
-
-
-
-//            redshiftService.uploadEvents(DateFormatter.print(date))
+            unloadMarkEventsToS3(dateRangeMoved)
           }
         })
-
       }
 
-//      if (CommandLineArguments.initial) {
-//        time(s"*** PROCESSING FILES FOR _INITIAL FOLDER") {
-//          redshiftService.uploadEvents("_initial")
-//        }
-//      }
     }
-
   }
 
 
+  def copyFromS3(date: DateTime) = {
+    time("copying events from S3 ...") {
+      val s3Service = new AmazonS3Service()
+      EventsFolderToTableName.keys.foreach(folderName => {
+        val s3Urls = s3Service.getListOfFolders(folderName, DateFormatter.print(date))
+        s3Urls.foreach {
+          RedshiftService.uploadToTable(EventsFolderToTableName(folderName), _)
+        }
+      })
+    }
+  }
+
+  def moveToMarkEvents():Tuple2[DateTime, DateTime] = {
+    val dateRangeToMove = MaxMinDateIntervalQuery.execute(
+      tableName = "atomic.mark_events_from_s3",
+      dateColumn = "collector_tstamp"
+    )
+    time("Moving events to mark_events table ...") {
+      MarkEventsETLQuery.execute(dateRangeToMove)
+      TruncateTableQuery.execute(EventsFolderToTableName.values)
+    }
+    (new DateTime(dateRangeToMove._1), new DateTime(dateRangeToMove._2))
+  }
+
+
+  def unloadMarkEventsToS3(dateRange: Tuple2[DateTime, DateTime]) = {
+    (0 to Days.daysBetween(dateRange._1, dateRange._2).getDays()).map(dateRange._1.plusDays(_)).foreach(date => {
+      MarkEventsUnloadQuery.execute("atomic.mark_events_from_s3", DateFormatter.print(date))
+    })
+  }
+
+  def calculateAggregates(dateRange: Tuple2[DateTime, DateTime]) = {
+
+  }
+
 }
+
+

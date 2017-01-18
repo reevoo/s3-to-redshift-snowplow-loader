@@ -3,7 +3,7 @@ package com.reevoo.snowplow
 import java.util.Properties
 import java.sql.DriverManager
 
-class RedshiftService(val historicEventsTableName: String) {
+class RedshiftService {
 
   private final val DbUrl = sys.env("TARGET_REDSHIFT_DB_URL")
   private final val DriverClass = "com.amazon.redshift.jdbc41.Driver"
@@ -14,11 +14,23 @@ class RedshiftService(val historicEventsTableName: String) {
     props.setProperty("password", sys.env("TARGET_REDSHIFT_DB_PASSWORD"))
     props
   }
-  
-  private def getConnection = {
+
+  def getConnection = {
     Class.forName(DriverClass)
     DriverManager.getConnection(DbUrl, DBConnectionProperties)
   }
+
+
+  def executeQuery(query: String, connection: java.sql.Connection) = {
+    val statement = connection.createStatement()
+    statement.executeQuery(query)
+  }
+
+  def executeUpdate(query: String, connection: java.sql.Connection) = {
+    val statement = connection.createStatement()
+    statement.executeUpdate(query)
+  }
+
 
   def uploadToTable(tableName: String, s3Endpoint: String) = {
     println(s"Copying to table ${tableName} from endpoint ${s3Endpoint}")
