@@ -6,10 +6,10 @@ object MaxMinDateIntervalQuery {
 
 
   def execute(tableName: String, dateColumn: String) = {
-    val redshiftService = new RedshiftService
-    val connection = redshiftService.getConnection
+    val snowplowDatabase = RedshiftService.snowplowDatabase
+    val connection = snowplowDatabase.getConnection
     try {
-      val resultSet = redshiftService.executeQuery(this.query(tableName, dateColumn), connection)
+      val resultSet = snowplowDatabase.executeQuery(this.query(tableName, dateColumn), connection)
       resultSet.next
       (resultSet.getTimestamp("min"), resultSet.getTimestamp("max"))
 

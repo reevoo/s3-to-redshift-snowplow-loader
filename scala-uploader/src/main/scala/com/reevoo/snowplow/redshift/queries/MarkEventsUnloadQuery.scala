@@ -6,13 +6,13 @@ import com.reevoo.snowplow.RedshiftService
 object MarkEventsUnloadQuery {
 
   def execute(tableName: String, date: String):Unit = {
-    val redshiftService = new RedshiftService
-    val connection = redshiftService.getConnection
+    val snowplowDatabase = RedshiftService.snowplowDatabase
+    val connection = snowplowDatabase.getConnection
     try {
-      redshiftService.executeUpdate(this.unloadQuery(tableName, date), connection)
-      redshiftService.executeUpdate(this.deleteQuery(tableName, date), connection)
-      redshiftService.executeUpdate(s"VACUUM ${tableName};", connection)
-      redshiftService.executeUpdate(s"ANALYZE ${tableName};", connection)
+      snowplowDatabase.executeUpdate(this.unloadQuery(tableName, date), connection)
+      snowplowDatabase.executeUpdate(this.deleteQuery(tableName, date), connection)
+      snowplowDatabase.executeUpdate(s"VACUUM ${tableName};", connection)
+      snowplowDatabase.executeUpdate(s"ANALYZE ${tableName};", connection)
 
     } finally {
       connection.close

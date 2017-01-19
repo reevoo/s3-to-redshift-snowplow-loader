@@ -9,11 +9,11 @@ object TruncateTableQuery {
   }
 
   def execute(tableNames: String*):Unit = {
-    val redshiftService = new RedshiftService
-    val connection = redshiftService.getConnection
+    val snowplowDatabase = RedshiftService.snowplowDatabase
+    val connection = snowplowDatabase.getConnection
     try {
       tableNames.foreach( tableName => {
-        redshiftService.executeUpdate(this.query(tableName), connection)
+        snowplowDatabase.executeUpdate(this.query(tableName), connection)
       })
 
     } finally {

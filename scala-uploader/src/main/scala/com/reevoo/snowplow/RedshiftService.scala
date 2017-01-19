@@ -3,21 +3,11 @@ package com.reevoo.snowplow
 import java.util.Properties
 import java.sql.DriverManager
 
-class RedshiftService {
-
-  private final val DbUrl = sys.env("TARGET_REDSHIFT_DB_URL")
-  private final val DriverClass = "com.amazon.redshift.jdbc41.Driver"
-  private final val DBConnectionProperties = {
-    val props = new Properties()
-    props.setProperty("driver", DriverClass)
-    props.setProperty("user", sys.env("TARGET_REDSHIFT_DB_USER"))
-    props.setProperty("password", sys.env("TARGET_REDSHIFT_DB_PASSWORD"))
-    props
-  }
+class RedshiftService(val dbUrl: String, val connectionProperties: Properties) {
 
   def getConnection = {
-    Class.forName(DriverClass)
-    DriverManager.getConnection(DbUrl, DBConnectionProperties)
+    Class.forName(connectionProperties.get("driver").asInstanceOf[String])
+    DriverManager.getConnection(dbUrl, connectionProperties)
   }
 
 
@@ -47,5 +37,28 @@ class RedshiftService {
     statement.close()
   }
 
+
+}
+
+
+object RedshiftService {
+
+  private final val DriverClass = "com.amazon.redshift.jdbc41.Driver"
+
+  def snowplowDatabase = {
+    val connectionProperties = new Properties()
+    connectionProperties.setProperty("driver", DriverClass)
+    connectionProperties.setProperty("user", sys.env("TARGET_SNOWPLOW_REDSHIFT_DB_USER"))
+    connectionProperties.setProperty("password", sys.env("TARGET_SNOWPLOW_REDSHIFT_DB_PASSWORD"))
+    new RedshiftService(sys.env("TARGET_SNOWPLOW_REDSHIFT_DB_URL"), connectionProperties)
+  }
+
+  def tableauDatabase = {
+    val connectionProperties = new Properties()
+    connectionProperties.setProperty("driver", DriverClass)
+    connectionProperties.setProperty("user", sys.env("TARGET_TABLEAU_REDSHIFT_DB_USER"))
+    connectionProperties.setProperty("password", sys.env("TARGET_TABLEAU_REDSHIFT_DB_PASSWORD"))
+    new RedshiftService(sys.env("TARGET_TABLEAU_REDSHIFT_DB_URL"), connectionProperties)
+  }
 
 }

@@ -5,10 +5,8 @@ import com.github.nscala_time.time.Imports._
 import org.joda.time.Days
 import com.frugalmechanic.optparse._
 
-import com.reevoo.snowplow.redshift.queries.MaxMinDateIntervalQuery
-import com.reevoo.snowplow.redshift.queries.MarkEventsETLQuery
-import com.reevoo.snowplow.redshift.queries.TruncateTableQuery
-import com.reevoo.snowplow.redshift.queries.MarkEventsUnloadQuery
+import com.reevoo.snowplow.redshift.queries._
+import com.reevoo.snowplow.redshift.queries.metrics._
 
 object SnowplowToRedshiftHistoricalDataUploader {
 
@@ -26,9 +24,6 @@ object SnowplowToRedshiftHistoricalDataUploader {
   )
 
   final val DateFormatter = DateTimeFormat.forPattern("yyyy-MM-dd")
-
-  final val RedshiftService = new RedshiftService
-
 
   def main(args: Array[String]) {
 
@@ -62,7 +57,7 @@ object SnowplowToRedshiftHistoricalDataUploader {
       EventsFolderToTableName.keys.foreach(folderName => {
         val s3Urls = s3Service.getListOfFolders(folderName, DateFormatter.print(date))
         s3Urls.foreach {
-          RedshiftService.uploadToTable(EventsFolderToTableName(folderName), _)
+          RedshiftService.snowplowDatabase.uploadToTable(EventsFolderToTableName(folderName), _)
         }
       })
     }
@@ -88,7 +83,12 @@ object SnowplowToRedshiftHistoricalDataUploader {
   }
 
   def calculateAggregates(dateRange: Tuple2[DateTime, DateTime]) = {
-
+//      NumberOfRenderedBadgesPerTrkrefPerDay.execute(dateRange)
+//    NumberOfDistinctUserClicksPerTrkrefPerDay.execute(dateRange)
+//    NumberOfDistinctUserNonClicksPerTrkrefPerDay.execute(dateRange)
+//      TotalSessionTimeWithClickPerTrkrefPerDay.execute(dateRange)
+//    TotalSessionTimeWithNoClickPerTrkrefPerDay.execute(dateRange)
+    NumberOfClickConvertedDidntClickConvertedPerTrkrefPerDay.execute(dateRange)
   }
 
 }

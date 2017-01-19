@@ -6,10 +6,10 @@ import com.reevoo.snowplow.RedshiftService
 object MarkEventsETLQuery {
 
   def execute(dateRange: Tuple2[java.sql.Timestamp, java.sql.Timestamp]) = {
-    val redshiftService = new RedshiftService
-    val connection = redshiftService.getConnection
+    val snowplowDatabase = RedshiftService.snowplowDatabase
+    val connection = snowplowDatabase.getConnection
     try {
-      redshiftService.executeUpdate(this.query(dateRange), connection)
+      snowplowDatabase.executeUpdate(this.query(dateRange), connection)
 
     } finally {
       connection.close
