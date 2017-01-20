@@ -2,6 +2,7 @@ package com.reevoo.snowplow.redshift.queries.metrics
 
 import com.github.nscala_time.time.Imports._
 import com.reevoo.snowplow.RedshiftService
+import com.reevoo.snowplow.redshift.queries.TotalRowCount
 import org.joda.time.Days
 
 
@@ -62,32 +63,65 @@ object NumberOfClickConvertedDidntClickConvertedPerTrkrefPerDay {
        |  group by 1, 2, 3, 4, 5
        |) clicked on clicked.domain_userid = purchased.domain_userid
        |  where purchased.trkref is not null
-       |  and purchased.event_type in ('purchase')
+       |  and purchased.event_type in ('purchase', 'propensity_to_buy')
        |  and purchased.derived_tstamp between '${date}' and '${DateFormatter.print(date)} 23:59:59'
        |  group by 1, 2, 3, 4, 5
       """.stripMargin
   }
 
+
   private def insertAggregatesIntoTableauDb(resultSet: java.sql.ResultSet, database: RedshiftService, connection: java.sql.Connection) = {
-    val purchasedSkus = sanitizeSkuList(resultSet.getString("purchased_skus").split(",").map(_.trim))
-    val clickedSkus = sanitizeSkuList(resultSet.getString("clicked_skus").split(",").map(_.trim))
+
+    val purchasedSkus = sanitizeSkuList(resultSet.getString("purchased_skus"))
+    val clickedSkus = sanitizeSkuList(resultSet.getString("clicked_skus"))
     val columnToUpdate = if (purchasedSkus.intersect(clickedSkus).isEmpty) "didnt_click_converted" else "clicked_converted"
 
-    val query =
+    val insertQuery =
+      s"""
+         | INSERT INTO overview_dashboard_data_testing ("trkref", "date_day", "date_week", "date_month")
+         | VALUES (
+         | '${resultSet.getString("trkref")}',
+         | '${resultSet.getDate("date")}',
+         | '${resultSet.getDate("date_week")}',
+         | '${resultSet.getDate("date_month")}'
+         | )
+                        """.stripMargin
+
+
+    val updateQuery =
       s"""
          | UPDATE overview_dashboard_data_testing set ${columnToUpdate}=(nvl(${columnToUpdate}, 0) + 1)
          | WHERE trkref='${resultSet.getString("trkref")}'
          | AND date_day='${resultSet.getDate("date")}'
       """.stripMargin
 
-    println(query)
-    database.executeUpdate(query, connection)
+
+    val rowExists = TotalRowCount.execute(
+      database,
+      connection,
+      "overview_dashboard_data_testing",
+      Map("trkref" -> resultSet.getString("trkref"), "date_day" -> resultSet.getString("date"))) > 0
+
+
+    if (rowExists) {
+      println(updateQuery)
+      database.executeUpdate(updateQuery, connection)
+    } else {
+      println(insertQuery)
+      database.executeUpdate(insertQuery, connection)
+      database.executeUpdate(updateQuery, connection)
+    }
+
   }
 
 
-  private def sanitizeSkuList(skuList: Array[String]) = {
+  private def sanitizeSkuList(skuList: String) = {
     //  we will need to sanitize the list of skus to remove stuff that does not need to be there
     //  individualPurchasedSkus.map(_.trim).map(sku => if (sku.startsWith("[")) sku.drop(2) else sku).map(sku => if (sku.endsWith("]")) sku.dropRight(2) else sku)
-    skuList
+    if (skuList != null)
+      skuList.split(",").map(_.trim)
+    else Array[String]()
   }
+
 }
+

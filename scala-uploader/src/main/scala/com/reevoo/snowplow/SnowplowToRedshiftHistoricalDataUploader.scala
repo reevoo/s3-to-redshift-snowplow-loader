@@ -63,6 +63,7 @@ object SnowplowToRedshiftHistoricalDataUploader {
     }
   }
 
+
   def moveToMarkEvents():Tuple2[DateTime, DateTime] = {
     val dateRangeToMove = MaxMinDateIntervalQuery.execute(
       tableName = "atomic.mark_events_from_s3",
@@ -82,12 +83,11 @@ object SnowplowToRedshiftHistoricalDataUploader {
     })
   }
 
+
   def calculateAggregates(dateRange: Tuple2[DateTime, DateTime]) = {
-//      NumberOfRenderedBadgesPerTrkrefPerDay.execute(dateRange)
-//    NumberOfDistinctUserClicksPerTrkrefPerDay.execute(dateRange)
-//    NumberOfDistinctUserNonClicksPerTrkrefPerDay.execute(dateRange)
-//      TotalSessionTimeWithClickPerTrkrefPerDay.execute(dateRange)
-//    TotalSessionTimeWithNoClickPerTrkrefPerDay.execute(dateRange)
+    NumberOfRenderedBadgesAndDistinctUserClicksAndNonClicksPerTrkrefPerDay.execute(dateRange)
+    TotalSessionTimeWithClickPerTrkrefPerDay.execute(dateRange)
+    TotalSessionTimeWithNoClickPerTrkrefPerDay.execute(dateRange)
     NumberOfClickConvertedDidntClickConvertedPerTrkrefPerDay.execute(dateRange)
   }
 

@@ -2,6 +2,7 @@ package com.reevoo.snowplow.redshift.queries.metrics
 
 import com.github.nscala_time.time.Imports._
 import com.reevoo.snowplow.RedshiftService
+import com.reevoo.snowplow.redshift.queries.TotalRowCount
 
 object TotalSessionTimeWithClickPerTrkrefPerDay {
 
@@ -51,14 +52,41 @@ object TotalSessionTimeWithClickPerTrkrefPerDay {
 
   private def insertAggregatesIntoTableauDb(resultSet: java.sql.ResultSet, database: RedshiftService, connection: java.sql.Connection) = {
 
-    val query =       s"""
-                         | UPDATE overview_dashboard_data_testing set clicked_time_on_site=${resultSet.getLong("session_duration_sum")}
-                         | WHERE trkref='${resultSet.getString("trkref")}'
-                         | AND date_day='${resultSet.getDate("date")}'
+    val insertQuery =
+      s"""
+         | INSERT INTO overview_dashboard_data_testing ("trkref", "date_day", "date_week", "date_month", "clicked_time_on_site")
+         | VALUES (
+         | '${resultSet.getString("trkref")}',
+         | '${resultSet.getDate("date")}',
+         | '${resultSet.getDate("date_week")}',
+         | '${resultSet.getDate("date_month")}',
+         |  ${resultSet.getLong("session_duration_sum")}
+         | )
                         """.stripMargin
 
-    println(query)
-    database.executeUpdate(query, connection)
+
+    val updateQuery =
+      s"""
+         | UPDATE overview_dashboard_data_testing set clicked_time_on_site=nvl(clicked_time_on_site, 0) + ${resultSet.getLong("session_duration_sum")}
+         | WHERE trkref='${resultSet.getString("trkref")}'
+         | AND date_day='${resultSet.getDate("date")}'
+                        """.stripMargin
+
+
+    val rowExists = TotalRowCount.execute(
+      database,
+      connection,
+      "overview_dashboard_data_testing",
+      Map("trkref" -> resultSet.getString("trkref"), "date_day" -> resultSet.getString("date"))) > 0
+
+
+    if (rowExists) {
+      println(updateQuery)
+      database.executeUpdate(updateQuery, connection)
+    } else {
+      println(insertQuery)
+      database.executeUpdate(insertQuery, connection)
+    }
 
   }
 }
