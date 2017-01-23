@@ -1,25 +1,32 @@
-package com.reevoo.snowplow.redshift.queries
+package com.reevoo.snowplow.actions
 
-import com.reevoo.snowplow.RedshiftService
+import com.reevoo.snowplow.Database
+import java.sql.{Connection, Statement}
+
+import com.github.nscala_time.time.Imports.{ DateTime, DateTimeFormat }
+import org.joda.time.Days
 
 
-object MarkEventsETLQuery {
+object MarkEventsETL {
 
-  def execute(dateRange: Tuple2[java.sql.Timestamp, java.sql.Timestamp]) = {
-    val snowplowDatabase = RedshiftService.snowplowDatabase
-    val connection = snowplowDatabase.getConnection
+  def execute(dateRange: (DateTime, DateTime)) = {
+    var connection: Connection = null
+    var statement: Statement = null
     try {
-      snowplowDatabase.executeUpdate(this.query(dateRange), connection)
+      connection = Database.Snowplow.getConnection
+      statement = connection.createStatement()
+      statement.executeUpdate(this.query(dateRange))
+      deleteStagingTables(statement, dateRange)
 
     } finally {
-      connection.close
+      if (statement != null) statement.close()
+      if (connection != null) connection.close()
     }
   }
 
-
-  private def query(dateRange: Tuple2[java.sql.Timestamp, java.sql.Timestamp]) =
+  private def query(dateRange: (DateTime, DateTime)) =
      s"""
-      |    INSERT INTO atomic.mark_events_from_s3 (
+      |    INSERT INTO ${Database.MarkEventsTableName} (
       |      SELECT
       |        -- App
       |        platform,
@@ -175,12 +182,12 @@ object MarkEventsETLQuery {
       |          cta_style,
       |          implementation,
       |          ROW_NUMBER() OVER (PARTITION BY event_id) as event_number -- select one event at random if the ID is duplicated
-      |        FROM atomic.root_events_upload_from_s3 AS e
-      |        LEFT JOIN atomic.badge_events_uploaded_from_s3 AS b ON e.event_id = b.root_id AND e.collector_tstamp = b.root_tstamp
-      |        LEFT JOIN atomic.conversion_events_uploaded_from_s3 AS c ON e.event_id = c.root_id AND e.collector_tstamp = c.root_tstamp
+      |        FROM ${Database.RootEventsTemporalTableName} AS e
+      |        LEFT JOIN ${Database.BadgeEventsTemporalTableName} AS b ON e.event_id = b.root_id AND e.collector_tstamp = b.root_tstamp
+      |        LEFT JOIN ${Database.ConversionEventsTemporalTableName} AS c ON e.event_id = c.root_id AND e.collector_tstamp = c.root_tstamp
       |        WHERE e.app_id = 'mark'
       |        AND e.event_id NOT IN (
-      |          SELECT me.event_id FROM atomic.mark_events_from_s3 me
+      |          SELECT me.event_id FROM ${Database.MarkEventsTableName} me
       |          WHERE me.collector_tstamp between '${dateRange._1}' AND '${dateRange._2}'
       |        )
       |        AND e.collector_tstamp between '${dateRange._1}' AND '${dateRange._2}'
@@ -188,6 +195,18 @@ object MarkEventsETLQuery {
       |      ) WHERE event_number = 1
       |    );
     """.stripMargin
+
+  private def deleteStagingTables(statement: Statement, dateRange: (DateTime, DateTime)) = {
+    val dateFormatter = DateTimeFormat.forPattern("yyyy-MM-dd")
+    (0 to Days.daysBetween(dateRange._1, dateRange._2).getDays()).map(dateRange._1.plusDays(_)).foreach(date => {
+      List((Database.RootEventsTemporalTableName, "collector_tstamp"),
+        (Database.BadgeEventsTemporalTableName, "root_tstamp"),
+        (Database.ConversionEventsTemporalTableName, "root_tstamp")).foreach { case (tableName, dateColumn) =>
+        UpdateDBQuery.execute(
+          statement,s"DELETE FROM $tableName WHERE $dateColumn BETWEEN '$date' and '$date 23:59:59'")
+      }
+    })
+  }
 
 
 }

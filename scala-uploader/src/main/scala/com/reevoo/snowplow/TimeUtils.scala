@@ -10,8 +10,8 @@ object TimeUtils {
     val result = thunk
     val endTime = new DateTime(System.currentTimeMillis)
     val period = new Period(startTime, endTime)
-    println(s"Total time taken = ${period.getDays()} days, ${period.getHours()} hours, " +
-      s"${period.getMinutes()} minutes, ${period.getSeconds()} seconds")
+    println(s"Total time taken = ${period.getDays} days, ${period.getHours} hours, " +
+      s"${period.getMinutes} minutes, ${period.getSeconds} seconds")
     result
   }
 

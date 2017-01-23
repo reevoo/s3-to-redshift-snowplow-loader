@@ -6,7 +6,7 @@ import com.amazonaws.services.s3.model.ListObjectsRequest
 import scala.collection.JavaConversions._
 
 
-class AmazonS3Service {
+class S3Client {
 
   private val BucketName = "snowplow-reevoo-unload"
 
