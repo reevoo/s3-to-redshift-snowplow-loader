@@ -25,7 +25,7 @@ trait DateRangeMetric {
       snowplowSatement = snowplowConnection.createStatement()
 
       (0 to Days.daysBetween(dateRange._1, dateRange._2).getDays()).map(dateRange._1.plusDays(_)).foreach(date => {
-        println(s"Processing day $date")
+        println(s"Inserting aggregates for day ${DateFormatter.print(date)}")
         val metricRowsToInsert = snowplowSatement.executeQuery(metricSelectionSQLQuery(date))
         while (metricRowsToInsert.next) {
           insertAggregateIntoTableauDb(metricRowsToInsert)

@@ -1,32 +1,37 @@
 package com.reevoo.snowplow.actions
 
 import com.reevoo.snowplow.Database
+import com.reevoo.snowplow.TimeUtils.time
+
 import java.sql.{Connection, Statement}
 
-import com.github.nscala_time.time.Imports.{ DateTime, DateTimeFormat }
-import org.joda.time.Days
 
-
+/**
+  * This object is used to move all the data from the staging root events, badge events and conversion events tables,
+  * joining them together into a staging mark events table. After moving the data to the mark events staging table
+  * it will also empty the root events, badge events and conversion events tables.
+  */
 object MarkEventsETL {
 
-  def execute(dateRange: (DateTime, DateTime)) = {
+  def execute() = {
     var connection: Connection = null
     var statement: Statement = null
     try {
-      connection = Database.Snowplow.getConnection
-      statement = connection.createStatement()
-      statement.executeUpdate(this.query(dateRange))
-      deleteStagingTables(statement, dateRange)
-
+      time(s"Performing MarkETL...") {
+        connection = Database.Snowplow.getConnection
+        statement = connection.createStatement()
+        statement.executeUpdate(this.ETLQuery)
+        deleteStagingTables(statement)
+      }
     } finally {
       if (statement != null) statement.close()
       if (connection != null) connection.close()
     }
   }
 
-  private def query(dateRange: (DateTime, DateTime)) =
+  private def ETLQuery =
      s"""
-      |    INSERT INTO ${Database.MarkEventsTableName} (
+      |    INSERT INTO ${Database.MarkEventsStagingTableName} (
       |      SELECT
       |        -- App
       |        platform,
@@ -182,31 +187,22 @@ object MarkEventsETL {
       |          cta_style,
       |          implementation,
       |          ROW_NUMBER() OVER (PARTITION BY event_id) as event_number -- select one event at random if the ID is duplicated
-      |        FROM ${Database.RootEventsTemporalTableName} AS e
-      |        LEFT JOIN ${Database.BadgeEventsTemporalTableName} AS b ON e.event_id = b.root_id AND e.collector_tstamp = b.root_tstamp
-      |        LEFT JOIN ${Database.ConversionEventsTemporalTableName} AS c ON e.event_id = c.root_id AND e.collector_tstamp = c.root_tstamp
+      |        FROM ${Database.RootEventsStagingTableName} AS e
+      |        LEFT JOIN ${Database.BadgeEventsStagingTableName} AS b ON e.event_id = b.root_id AND e.collector_tstamp = b.root_tstamp
+      |        LEFT JOIN ${Database.ConversionEventsStagingTableName} AS c ON e.event_id = c.root_id AND e.collector_tstamp = c.root_tstamp
       |        WHERE e.app_id = 'mark'
       |        AND e.event_id NOT IN (
-      |          SELECT me.event_id FROM ${Database.MarkEventsTableName} me
-      |          WHERE me.collector_tstamp between '${dateRange._1}' AND '${dateRange._2}'
+      |          SELECT me.event_id FROM ${Database.MarkEventsStagingTableName} me
       |        )
-      |        AND e.collector_tstamp between '${dateRange._1}' AND '${dateRange._2}'
       |        ORDER BY e.collector_tstamp
       |      ) WHERE event_number = 1
       |    );
     """.stripMargin
 
-  private def deleteStagingTables(statement: Statement, dateRange: (DateTime, DateTime)) = {
-    val dateFormatter = DateTimeFormat.forPattern("yyyy-MM-dd")
-    (0 to Days.daysBetween(dateRange._1, dateRange._2).getDays()).map(dateRange._1.plusDays(_)).foreach(date => {
-      List((Database.RootEventsTemporalTableName, "collector_tstamp"),
-        (Database.BadgeEventsTemporalTableName, "root_tstamp"),
-        (Database.ConversionEventsTemporalTableName, "root_tstamp")).foreach { case (tableName, dateColumn) =>
-        UpdateDBQuery.execute(
-          statement,s"DELETE FROM $tableName WHERE $dateColumn BETWEEN '$date' and '$date 23:59:59'")
-      }
-    })
+  private def deleteStagingTables(statement: Statement) = {
+    UpdateDBQuery.execute(statement,s"TRUNCATE TABLE ${Database.RootEventsStagingTableName} '")
+    UpdateDBQuery.execute(statement,s"TRUNCATE TABLE ${Database.BadgeEventsStagingTableName} '")
+    UpdateDBQuery.execute(statement,s"TRUNCATE TABLE ${Database.ConversionEventsStagingTableName} '")
   }
-
 
 }

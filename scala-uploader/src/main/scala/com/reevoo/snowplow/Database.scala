@@ -18,10 +18,12 @@ object Database {
 
   private final val RedshiftDriverClass = "com.amazon.redshift.jdbc41.Driver"
 
-  final val RootEventsTemporalTableName = "atomic.root_events_upload_from_s3"
-  final val BadgeEventsTemporalTableName = "atomic.badge_events_uploaded_from_s3"
-  final val ConversionEventsTemporalTableName = "atomic.conversion_events_uploaded_from_s3"
-  final val MarkEventsTableName = "atomic.mark_events_from_s3"
+  final val RootEventsStagingTableName = "atomic.root_events_upload_from_s3"
+  final val BadgeEventsStagingTableName = "atomic.badge_events_uploaded_from_s3"
+  final val ConversionEventsStagingTableName = "atomic.conversion_events_uploaded_from_s3"
+  final val MarkEventsStagingTableName = "atomic.mark_events_from_s3"
+
+  final val OverviewDashboardDataTableName = "overview_dashboard_date_testing"
 
   lazy final val Snowplow = {
     val connectionProperties = new Properties()
