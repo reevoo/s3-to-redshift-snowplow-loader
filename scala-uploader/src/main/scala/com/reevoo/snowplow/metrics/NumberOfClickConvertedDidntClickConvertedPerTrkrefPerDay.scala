@@ -5,7 +5,7 @@ import java.sql.ResultSet
 
 object NumberOfClickConvertedDidntClickConvertedPerTrkrefPerDay extends DateRangeMetric {
 
-  def metricSelectionSQLQuery(date: DateTime) = {
+  def metricSelectionSQLQuery(dateRange: (DateTime, DateTime)) = {
     s"""
        |select to_date(DATE_TRUNC('day', purchased.derived_tstamp), 'YYYY-MM-DD') as date,
        |       to_date(date_trunc('week', purchased.derived_tstamp::timestamp), 'YYYY-MM-DD') as date_week,
@@ -25,12 +25,12 @@ object NumberOfClickConvertedDidntClickConvertedPerTrkrefPerDay extends DateRang
        |from atomic.mark_events
        |  where trkref is not null
        |  and event_type in ('clicked')
-       |  and derived_tstamp between dateadd(day,-30,'$date') and '$date'
+       |  and derived_tstamp between dateadd(day,-30,'${dateRange._1}') and '${dateRange._2}'
        |  group by 1, 2, 3, 4, 5
        |) clicked on clicked.domain_userid = purchased.domain_userid
        |  where purchased.trkref is not null
        |  and purchased.event_type in ('purchase', 'propensity_to_buy')
-       |  and purchased.derived_tstamp between '$date' and '${DateFormatter.print(date)} 23:59:59'
+       |  and purchased.derived_tstamp between '${dateRange._1}' and '${dateRange._2}'
        |  group by 1, 2, 3, 4, 5
       """.stripMargin
   }
@@ -47,11 +47,17 @@ object NumberOfClickConvertedDidntClickConvertedPerTrkrefPerDay extends DateRang
       """.stripMargin
   }
 
+  /**
+    * Sometimes clients send us the skus in the tracking events
+    * are enclosed in brackets and quoutes, this method eliminates those.
+    *
+    * @param skuList String with the comman separated list of skus to sanitize
+    * @return Array of skus where each one of them have been stripped of any empty spaces at the beggining and
+    *         end of the sku plus any brackets or quotes at the beginning and end of the skus.
+    */
   private def sanitizeSkuList(skuList: String) = {
-    //  we will need to sanitize the list of skus to remove stuff that does not need to be there
-    //  individualPurchasedSkus.map(_.trim).map(sku => if (sku.startsWith("[")) sku.drop(2) else sku).map(sku => if (sku.endsWith("]")) sku.dropRight(2) else sku)
     if (skuList != null)
-      skuList.split(",").map(_.trim)
+      skuList.split(",").map(_.trim).map(_.replaceAll("^([\\[{\"'])+|([\\]}\"'])+$",""))
     else Array[String]()
   }
 

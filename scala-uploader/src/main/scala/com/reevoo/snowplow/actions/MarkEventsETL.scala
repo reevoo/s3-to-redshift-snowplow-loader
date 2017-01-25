@@ -24,8 +24,8 @@ object MarkEventsETL {
         deleteStagingTables(statement)
       }
     } finally {
-      if (statement != null) statement.close()
-      if (connection != null) connection.close()
+      if (statement != null && !statement.isClosed) statement.close()
+      if (connection != null && !connection.isClosed) connection.close()
     }
   }
 

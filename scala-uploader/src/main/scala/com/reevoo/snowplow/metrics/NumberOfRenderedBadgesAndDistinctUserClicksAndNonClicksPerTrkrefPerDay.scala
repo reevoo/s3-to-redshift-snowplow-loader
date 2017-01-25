@@ -6,7 +6,7 @@ import java.sql.ResultSet
 
 object NumberOfRenderedBadgesAndDistinctUserClicksAndNonClicksPerTrkrefPerDay extends DateRangeMetric {
 
-  def metricSelectionSQLQuery(date: DateTime) = {
+  def metricSelectionSQLQuery(dateRange: (DateTime, DateTime)) = {
     s"""
        |SELECT date,
        |       date_week,
@@ -24,7 +24,7 @@ object NumberOfRenderedBadgesAndDistinctUserClicksAndNonClicksPerTrkrefPerDay ex
        |       COUNT(DISTINCT(domain_userid)) AS number_of_events
        |FROM atomic.mark_events
        |WHERE trkref IS NOT NULL
-       |AND derived_tstamp BETWEEN '$date' and '${DateFormatter.print(date)} 23:59:59'
+       |AND derived_tstamp BETWEEN '${dateRange._1}' and '${dateRange._2}'
        |AND event_type in ('rendered','clicked')
        |GROUP BY 1, 2, 3, 4, 5
        |) GROUP BY 1,2,3,4

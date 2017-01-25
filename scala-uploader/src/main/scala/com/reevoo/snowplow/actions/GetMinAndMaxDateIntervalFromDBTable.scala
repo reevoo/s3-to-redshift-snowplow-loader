@@ -30,7 +30,7 @@ object GetMinAndMaxDateIntervalFromDBTable {
       (new DateTime(resultSet.getTimestamp("min")), new DateTime(resultSet.getTimestamp("max")))
 
     } finally {
-      if (statement != null) statement.close()
+      if (statement != null && !statement.isClosed) statement.close()
     }
 
   }

@@ -10,9 +10,12 @@ object CalculateOverviewDashboardAggregates {
 
   def execute(dateRange: (DateTime, DateTime)): Unit = {
     time(s"Calculating Aggregates for date range $dateRange") {
-      NumberOfRenderedBadgesAndDistinctUserClicksAndNonClicksPerTrkrefPerDay.execute(dateRange)
-      TotalSessionTimeWithClickAndWithNotClickPerTrkrefPerDay.execute(dateRange)
-      NumberOfClickConvertedDidntClickConvertedPerTrkrefPerDay.execute(dateRange)
+      println("Calculating NumberOfRenderedBadgesAndDistinctUserClicksAndNonClicksPerTrkrefPerDay")
+      NumberOfRenderedBadgesAndDistinctUserClicksAndNonClicksPerTrkrefPerDay.executeByRange(dateRange)
+      println("Calculating TotalSessionTimeWithClickAndWithNotClickPerTrkrefPerDay")
+      TotalSessionTimeWithClickAndWithNotClickPerTrkrefPerDay.executeByRange(dateRange)
+      println("Calculating NumberOfClickConvertedDidntClickConvertedPerTrkrefPerDay")
+      NumberOfClickConvertedDidntClickConvertedPerTrkrefPerDay.executeByDay(dateRange)
     }
   }
 

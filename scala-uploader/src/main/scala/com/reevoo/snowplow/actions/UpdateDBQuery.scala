@@ -18,7 +18,7 @@ object UpdateDBQuery {
       execute(statement, query)
 
     } finally {
-      if (statement != null) statement.close()
+      if (statement != null && !statement.isClosed) statement.close()
     }
   }
 

@@ -6,7 +6,7 @@ import java.sql.ResultSet
 
 object TotalSessionTimeWithClickAndWithNotClickPerTrkrefPerDay extends DateRangeMetric {
 
-  def metricSelectionSQLQuery(date: DateTime) = {
+  def metricSelectionSQLQuery(dateRange: (DateTime, DateTime)) = {
     s"""
        |select date,
        |       date_week,
@@ -24,7 +24,7 @@ object TotalSessionTimeWithClickAndWithNotClickPerTrkrefPerDay extends DateRange
        |       sum((CASE event_type WHEN 'clicked' THEN 1 ELSE 0 END)) as clicks_count
        |	from atomic.mark_events
        |	where trkref is not null
-       |	and derived_tstamp BETWEEN '$date' and '${DateFormatter.print(date)} 23:59:59'
+       |	and derived_tstamp BETWEEN '${dateRange._1}' and '${dateRange._2}'
        |	group by 1, 2, 3, 4, 5
        |)
        |where session_duration > 0

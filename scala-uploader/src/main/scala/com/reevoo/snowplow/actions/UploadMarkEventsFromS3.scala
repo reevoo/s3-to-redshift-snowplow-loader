@@ -33,24 +33,24 @@ object UploadMarkEventsFromS3 {
 
 
       EventsFolderToTableName.keys.par.foreach(folderName => {
-        try {
-          connection = Database.Snowplow.getConnection
-          statement = connection.createStatement()
 
           val s3Urls = s3Service.getListOfFolders(folderName, DateFormatter.print(date))
           s3Urls.foreach(s3Url => {
-            time(s"Copying to table ${EventsFolderToTableName(folderName)} from endpoint $s3Url") {
-              statement.executeUpdate(copyFromS3SQLQuery(EventsFolderToTableName(folderName), s3Url))
+            try {
+              connection = Database.Snowplow.getConnection
+              statement = connection.createStatement()
+
+              time(s"Copying to table ${EventsFolderToTableName(folderName)} from endpoint $s3Url") {
+                statement.executeUpdate(copyFromS3SQLQuery(EventsFolderToTableName(folderName), s3Url))
+              }
+            } finally {
+              if (statement != null && !statement.isClosed) statement.close()
+              if (connection != null && !connection.isClosed) connection.close()
             }
           })
-
-        } finally {
-          if (statement != null) statement.close()
-          if (connection != null) connection.close()
-        }
       })
 
-      retrieveUploadedDateRange(statement)
+      retrieveUploadedDateRange(date, statement)
   }
 
   /** Builds a SQL query used to copy data from an S3 file into Redshift.
@@ -74,14 +74,15 @@ object UploadMarkEventsFromS3 {
     *
     * @return A tuple with the min and max event collector timestamp dates.
     */
-  private def retrieveUploadedDateRange(statement: Statement) = {
+  private def retrieveUploadedDateRange(date: DateTime, statement: Statement) = {
 
     // make sure we delete events with invalid dates which sometimes do get in. We didn't start collecting
     // tracking data with snowplow until Dec 2015, so we can remove any events with a date older than that.
     // otherwise we get some invalid dates like the following: 0016-07-30 18:02:18
     UpdateDBQuery.execute(
       statement,
-      s"DELETE FROM ${Database.RootEventsStagingTableName} WHERE collector_tstamp <= '2015-12-01'"
+      s"""DELETE FROM ${Database.RootEventsStagingTableName} WHERE collector_tstamp <= '2015-12-01'
+         | and collector_tstamp > '${date.withTime(23,59,59,999)}'""".stripMargin
     )
 
     GetMinAndMaxDateIntervalFromDBTable.execute(
