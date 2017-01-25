@@ -4,7 +4,12 @@ version := "1.0"
 
 scalaVersion in ThisBuild := "2.11.7"
 
-resolvers += "Redshift" at "http://redshift-maven-repository.s3-website-us-east-1.amazonaws.com/release"
+logBuffered in Test := false
+
+resolvers ++= Seq(
+  "Redshift" at "http://redshift-maven-repository.s3-website-us-east-1.amazonaws.com/release",
+  "Artima Maven Repository" at "http://repo.artima.com/releases"
+)
 
 // additional libraries
 libraryDependencies ++= Seq(
@@ -14,4 +19,6 @@ libraryDependencies ++= Seq(
   "com.amazonaws" % "aws-java-sdk" % "1.11.66",
   "com.typesafe.scala-logging" %% "scala-logging" % "3.5.0",
   "ch.qos.logback" % "logback-classic" % "1.1.7"
+  "org.scalactic" %% "scalactic" % "3.0.1",
+  "org.scalatest" %% "scalatest" % "3.0.1" % "test"
 )
