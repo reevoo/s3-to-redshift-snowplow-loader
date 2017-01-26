@@ -1,18 +1,22 @@
 package com.reevoo.snowplow.metrics
 
-import com.github.nscala_time.time.Imports.{DateTime, DateTimeFormat}
-import org.joda.time.Days
 import com.reevoo.snowplow.Database
+import com.reevoo.snowplow.TimeUtils._
+import com.github.nscala_time.time.Imports.DateTime
 import java.sql.{Connection, ResultSet, Statement}
 
-trait DateRangeMetric {
+import com.typesafe.scalalogging.LazyLogging
 
-  final val DateFormatter = DateTimeFormat.forPattern("yyyy-MM-dd")
-  final val AggregatesTableName = "overview_dashboard_data_testing"
+/**
+  * Trait with common functionality for all aggregate metrics that need to be run in specific date ranges.
+  */
+trait DateRangeMetric extends LazyLogging {
 
   /**
+    * Executes the aggregate calculations individually for each day in the date range. Will insert the calculated
+    * values in the appropriate Tableau database table.
     *
-    * @param dateRange
+    * @param dateRange The date range for which to calculate the aggregates.
     */
   def executeByDay(dateRange: (DateTime, DateTime)) = {
     var snowplowConnection: Connection = null
@@ -22,7 +26,7 @@ trait DateRangeMetric {
       snowplowConnection = Database.Snowplow.getConnection
       snowplowSatement = snowplowConnection.createStatement()
 
-      (0 to Days.daysBetween(dateRange._1, dateRange._2).getDays()).map(dateRange._1.plusDays(_)).foreach(date => {
+      listOfDaysBetween(dateRange._1, dateRange._2).map(dateRange._1.plusDays).foreach(date => {
         val metricRowsToInsert = snowplowSatement.executeQuery(metricSelectionSQLQuery(date, date.withTime(23,59,59,999)))
         while (metricRowsToInsert.next) {
           insertAggregateIntoTableauDb(metricRowsToInsert)
@@ -35,6 +39,12 @@ trait DateRangeMetric {
     }
   }
 
+  /**
+    * Executes the aggregate calculations in one single group query for the whole range, doesn't need to run
+    * the calculations individually for every day in the range.
+    *
+    * @param dateRange The date range for which to calculate the aggregates.
+    */
   def executeByRange(dateRange: (DateTime, DateTime)) = {
     var snowplowConnection: Connection = null
     var snowplowSatement: Statement = null
@@ -56,11 +66,14 @@ trait DateRangeMetric {
 
 
   /**
+    * Inserts the calculate aggregate values for a specific combination of date and trkref in the appropriate
+    * Tableau database table. If a row for the specific combination of date and trkref already exist in the destination
+    * table, then the existing row is updated. Otherwise a new row is created for the date and trkref combination.
     *
-    * @param metricRow
+    * @param metricRow Object containing all the calculated aggregate values for the specific day and trkref.
     */
   def insertAggregateIntoTableauDb(metricRow: ResultSet): Unit = {
-    println(s"Inserting aggregate for day=${metricRow.getDate("date")} and trkref=${metricRow.getString("trkref")} ")
+    logger.info(s"Inserting aggregate for day=${metricRow.getDate("date")} and trkref=${metricRow.getString("trkref")} ")
     var tableauConnection: Connection = null
     var statement:Statement = null
     try {
@@ -68,7 +81,8 @@ trait DateRangeMetric {
       tableauConnection = Database.Tableau.getConnection
       statement = tableauConnection.createStatement()
 
-      val aggregateRowExists = numberOfRowsForDate(metricRow.getString("date"), statement) > 0
+      val aggregateRowExists = aggregateRowForDateAndTrkrefExists(
+        metricRow.getString("date"), metricRow.getString("trkref"), tableauConnection)
 
       if (aggregateRowExists) {
         statement.executeUpdate(aggregatePerTrkrefPerDayUpdateQuery(metricRow))
@@ -84,13 +98,16 @@ trait DateRangeMetric {
   }
 
   /**
+    * Builds the query that will insert a new aggregates row in the relevant Tableau database table for a specific
+    * combination of date and trkref.
     *
-    * @param metricsRow
-    * @return
+    * @param metricsRow Object with all the calculated aggregate values for the specific combination of date an trkref.
+    *
+    * @return The insert SQL query.
     */
   def aggregatePerTrkrefPerDayCreationQuery(metricsRow: ResultSet): String = {
     s"""
-       | INSERT INTO $AggregatesTableName ("trkref", "date_day", "date_week", "date_month")
+       | INSERT INTO ${Database.OverviewDashboardDataTableName} ("trkref", "date_day", "date_week", "date_month")
        | VALUES (
        | '${metricsRow.getString("trkref")}',
        | '${metricsRow.getDate("date")}',
@@ -99,31 +116,50 @@ trait DateRangeMetric {
        | )""".stripMargin
   }
 
+
   /**
+    * Builds the query that will update the appropriate aggregates row in the appropriate tableau database table
+    * with the provided calculated values for a combination of date and trkref.
     *
-    * @param metricsRow
-    * @return
+    * @param metricsRow Object with all the calculated aggregate values for the specific combination of date an trkref.
+    *
+    * @return The update SQL quwry.
     */
   def aggregatePerTrkrefPerDayUpdateQuery(metricsRow: ResultSet): String
 
 
   /**
+    * Builds the query that will calculate all the aggregate values for the specified range from the data held in
+    * the Snowplow database for that date range.
     *
-    * @param dateRange
-    * @return
+    * @param dateRange The date range for which to calculate the aggregates.
+    *
+    * @return The aggregates calculation SQL query.
     */
   def metricSelectionSQLQuery(dateRange: (DateTime, DateTime)): String
 
+
   /**
+    * Returns whether a row for the aggregates values for a specific combination of date and trkref already exists
+    * in the tableau database.
     *
-    * @param date
-    * @param statement
-    * @return
+    * @param date Date to check.
+    * @param trkref The trkref to check.
+    * @param connection Connection to the tableau database.
+    *
+    * @return true if the row for the combination of date and trkref already exists; false otherwise.
     */
-  private def numberOfRowsForDate(date: String, statement: Statement) = {
-    val resultSet = statement.executeQuery(
-      s"SELECT count(*) FROM ${Database.OverviewDashboardDataTableName} WHERE date_day = ${date}")
-    resultSet.next
-    resultSet.getLong("count")
+  private def aggregateRowForDateAndTrkrefExists(date: String, trkref: String, connection: Connection) = {
+    var statement: Statement = null
+
+    try {
+      statement = connection.createStatement()
+      val resultSet = statement.executeQuery(
+        s"SELECT count(*) FROM ${Database.OverviewDashboardDataTableName} WHERE date_day = '$date' and trkref='${trkref}'")
+      resultSet.next
+      resultSet.getLong("count") > 0
+    } finally {
+      if (statement != null && !statement.isClosed) statement.close()
+    }
   }
 }

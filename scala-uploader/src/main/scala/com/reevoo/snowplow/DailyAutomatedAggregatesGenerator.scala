@@ -5,7 +5,7 @@ import com.github.nscala_time.time.Imports.DateTime
 
 
 /**
-  * Created by jesuslara on 1/24/17.
+  * WORK IN PROGRESS - JUST PLACEHOLDER
   */
 object DailyAutomatedAggregatesGenerator {
 

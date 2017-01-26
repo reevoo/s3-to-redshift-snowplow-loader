@@ -3,62 +3,84 @@ package com.reevoo.snowplow.actions
 import com.reevoo.snowplow.{Database, S3Client}
 import com.reevoo.snowplow.TimeUtils.{time, DateFormatter}
 
-import java.sql.{Connection, Statement}
 import org.joda.time.DateTime
 
-/** This class is used for copying data files from AWS S3 buckets into tables in Redshift */
+/**
+  * Copies events from the following three folders in the "https://snowplow-reevoo-unload.s3.amazonaws.com" AWS S3 bucket:
+  *
+  *     - events
+  *     - com_reevoo_badge_event_1
+  *     - com_reevoo_conversion_event_1
+  *
+  * Up into the following three tables, respectively, in Snowplow's Redshift database:
+  *
+  *     - root_events_uploaded_from_s3
+  *     - badge_events_uploaded_from_s3
+  *     - conversion_events_uploaded_from_s3
+  *
+  * Note that the application will know how to connect to Snowplow's Redshift database using the following
+  * environment variables, which need to be correctly set up when running the application:
+  *
+  *     - TARGET_SNOWPLOW_REDSHIFT_DB_URL
+  *     - TARGET_SNOWPLOW_REDSHIFT_DB_USER
+  *     - TARGET_SNOWPLOW_REDSHIFT_DB_PASSWORD
+  *
+  */
 object UploadMarkEventsFromS3 {
 
-  private final val EventsFolderToTableName = Map(
+  /** Internal constant with a mapping indicating which event type folder in the S3 bucket need to be copied to which
+    * table in Snowplow's Redshift database.
+    */
+  private final val EventTypeFolderToTableName = Map(
     "events" -> Database.RootEventsStagingTableName,
     "com_reevoo_badge_event_1" -> Database.BadgeEventsStagingTableName,
     "com_reevoo_conversion_event_1" -> Database.ConversionEventsStagingTableName
   )
 
-  /** Uploads events from S3 folders to temporal tables in redshift
+
+  /**
+    * Triggers the upload of data from the S3 folders into the Redshift tables. Note that inside each of the three
+    * concerned S3 folders to upload (events, com_reevoo_badge_event_1 and com_reevoo_conversion_event_1), the data is
+    * partitioned in subfolders which names are dates. This method triggers the loading of the data only for the folders
+    * associated to a specified date.
     *
-    * Given the date parameter, it will find all the folders in S3 that start with the specified date, and upload
-    * all the files in those folders to some associated temporal tables in redshift.
+    * @param date The date associated to the folders which will be uploaded from S3 to Redshift.
     *
-    * @param date The date the folders in S3 that we want to upload start with.
-    *
-    * @return  A tuple with the actual range of event dates uploaded to the database, as the folders for a given
-    * date are not guaranteed to contain only events for that date, they could also contain events for the previous day
-    * or from several of the previous days.
+    * @return A tuple indicating the date range of events loaded into Redshift by this operation. The first element
+    *         of the tuple is the collection date of the oldest event loaded, and the second element of the tuple is
+    *         the collection date of the most recent event loaded. The date in a date folder is not guaranteed to
+    *         contain events for that date only, it might contain events also from previous days, that's why this return
+    *         type is necessary so we know the full date range loaded by the operation.
     */
   def execute(date: DateTime): (DateTime, DateTime) = {
     val s3Service = new S3Client()
-    var connection: Connection = null
-    var statement: Statement = null
 
-
-      EventsFolderToTableName.keys.par.foreach(folderName => {
-
-          val s3Urls = s3Service.getListOfFolders(folderName, DateFormatter.print(date))
-          s3Urls.foreach(s3Url => {
-            try {
-              connection = Database.Snowplow.getConnection
-              statement = connection.createStatement()
-
-              time(s"Copying to table ${EventsFolderToTableName(folderName)} from endpoint $s3Url") {
-                statement.executeUpdate(copyFromS3SQLQuery(EventsFolderToTableName(folderName), s3Url))
-              }
-            } finally {
-              if (statement != null && !statement.isClosed) statement.close()
-              if (connection != null && !connection.isClosed) connection.close()
-            }
-          })
+    EventTypeFolderToTableName.keys.par.foreach(eventType => {
+      val s3Urls = s3Service.getListOfDateFolders(eventType, DateFormatter.print(date))
+      s3Urls.foreach(s3Url => {
+        time(s"Copying to table [${EventTypeFolderToTableName(eventType)}] from endpoint [$s3Url]") {
+          UpdateDBQuery.execute(Database.Snowplow, copyFromS3SQLQuery(EventTypeFolderToTableName(eventType), s3Url))
+        }
       })
+    })
 
-      retrieveUploadedDateRange(date, statement)
+    retrieveUploadedDateRange(date)
   }
 
-  /** Builds a SQL query used to copy data from an S3 file into Redshift.
+  /**
+    * Builds the SQL query that needs to be run to copy all the events from a specified file endpoint in S3
+    * to the specified table in Redshift.
     *
-    * @param tableName The name of the table in Redshift where to copy the data.
-    * @param s3Endpoint The file URI in S3 from where to copy the data
+    * Note that the method relies of the following two environment variables being available with the key
+    * and secret values of an account with permission to connect to the AWS S3 bucket:
     *
-    * @return The SQL query string.
+    *   - SNOWPLOW_AWS_ACCESS_KEY_ID
+    *   - SNOWPLOW_AWS_SECRET_ACCESS_KEY
+    *
+    * @param tableName Name of the table where the events need to be copied to.
+    * @param s3Endpoint Endpoint of the data file in S3 that contains the events to copy.
+    *
+    * @return A string with the SQL query that needs to be run to trigger the copy.
     */
   private def copyFromS3SQLQuery(tableName: String, s3Endpoint: String) = {
     s"COPY $tableName FROM '$s3Endpoint' " +
@@ -68,29 +90,30 @@ object UploadMarkEventsFromS3 {
       "GZIP REMOVEQUOTES ESCAPE TRUNCATECOLUMNS DATEFORMAT 'auto' MAXERROR 100;"
   }
 
-   /** Returns the mininum and maximum event dates uploaded to the database.
+  /**
+    * Returns the mininum and maximum event collection dates uploaded to the redshift database
+    * as part of this class operation.
     *
-    * @param statement Database statement through which to execute the sql query to select max and min dates.
     *
-    * @return A tuple with the min and max event collector timestamp dates.
+    * @return A tuple with the minimum and maximum event collection timestamps.
     */
-  private def retrieveUploadedDateRange(date: DateTime, statement: Statement) = {
+  private def retrieveUploadedDateRange(date: DateTime) = {
 
-    // make sure we delete events with invalid dates which sometimes do get in. We didn't start collecting
-    // tracking data with snowplow until Dec 2015, so we can remove any events with a date older than that.
-    // otherwise we get some invalid dates like the following: 0016-07-30 18:02:18
-    UpdateDBQuery.execute(
-      statement,
-      s"""DELETE FROM ${Database.RootEventsStagingTableName} WHERE collector_tstamp <= '2015-12-01'
-         | and collector_tstamp > '${date.withTime(23,59,59,999)}'""".stripMargin
-    )
+      // Before calculating the minimum and maximum we need to filter out some events with invalid dates.
+      // We didn't start collecting tracking data with snowplow until Dec 2015, so we can remove any events
+      // with a date older than that. Otherwise we get some invalid dates like the following: 0016-07-30 18:02:18
+      //
+      // These seems to be an issue with Snowplow's framework, it doesn't happen very often but every once in
+      // a blue moon an event with an invalid date like that will get in through their collection process.
+      //
+      UpdateDBQuery.execute(
+        Database.Snowplow,
+        s"""DELETE FROM ${Database.RootEventsStagingTableName} WHERE collector_tstamp <= '2015-12-01'
+            | and collector_tstamp > '${date.withTime(23,59,59,999)}'""".stripMargin
+      )
 
-    GetMinAndMaxDateIntervalFromDBTable.execute(
-      database = Database.Snowplow,
-      tableName = Database.RootEventsStagingTableName,
-      dateColumn = "collector_tstamp"
-    )
+      GetMinAndMaxDateIntervalFromDBTable.
+        execute(Database.Snowplow, Database.RootEventsStagingTableName ,"collector_tstamp")
   }
-
 
 }
