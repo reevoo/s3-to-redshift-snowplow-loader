@@ -1,4 +1,6 @@
-# S3 to Redshift Snowplow Loader
+# [Deprecated] S3 to Redshift Snowplow Loader
+
+**We use https://github.com/reevoo/tracking_metrics instead**
 
 To load historical event dumps from S3 back do Redshift Snowplow db.
 
